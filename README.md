@@ -34,3 +34,39 @@ Conclusions:
 - All data_dump_dt are 2017-01-02
 
 summary account mapping file doesn't contain additional informamtion
+
+## alerts
+There is an alert file and SAR file. Note that the alert file contains false positives.
+false positives are pattern that look like SARs (true positives) but deviate in high of amounts and timing.
+
+Conclusions alert_file:
+- There are 200 alerts related to 890 accounts
+- Model_id is 3 for all alerts
+- All alerts are of type cycle. Cycle have length between 3 and 6.
+- No clear correlation between cycle length and is_sar indicator.
+- Of the 890 alerts, 440 account in 100 SARs and 450 false positives.
+- Start en end is respectively 0 and 1mln.
+- schedule id = 0
+- bank_id = bank_a 
+
+
+Sar_file:
+- 440 SARs of type cycle, IS_SAR flag set to yes and with ACCOUNT_TYPE set to INDIVIDUAL
+- The SARs are spread between 2017-01 and 2019-12, last month has less cases.
+
+Note that every account can only have one alert /sar. I.e. alert generation/SAr filing is not 
+per month.
+
+alert_transactions file:
+- Alerts are all cycles using transactions of type transfer.
+- 100 SARs and 100 false posive sars.
+- **Amount of SAR is significant higher (>1600 USD) compared to false positve alerts (<200USD)**
+- **Cycles for SARs take place in a time span of max 30 days and for false postivite between 30 and 90 days.**
+
+
+## transactions
+- Around 10mln trxns of type transfer over period Jan 2017 to Dec 2018
+- **Outdegree is alway between 102 to 104** this is not a realistic assumption.
+- Indegree ranges between 0 and 1137
+- The amounts are between 0 en 3000, with a peak around 500 USD.
+- Note that the amounts related to sar are all above the 1600Eur!
