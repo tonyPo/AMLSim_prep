@@ -1,6 +1,14 @@
 # AMLSim_prep
 EDA of the AMLSim synthetic dataset, feature and graph creation
 
+# dataset
+The dataset at hand is the AMLSim dataset from IBM. https://github.com/IBM/AMLSim. The project provides a sample dataset consisting of three banks separately and combined. In this analysis, the dataset corresponding to bank A is analysed, assuming that the dataset for bank B and C follow similar structure with different alert patterns. https://www.dropbox.com/sh/l3grpumqfgbxqak/AAD5gERyPCGM-DXYErAca-ITa/banks?dl=0
+
+
+EvolveGCN: Evolving Graph Convolutional Networks for Dynamic Graphs https://arxiv.org/abs/1902.10191
+
+Scalable Graph Learning for Anti-Money Laundering: A First Look https://arxiv.org/abs/1812.00076
+
 # EDA analysis
 
 ## accounts
@@ -62,6 +70,7 @@ alert_transactions file:
 - 100 SARs and 100 false posive sars.
 - **Amount of SAR is significant higher (>1600 USD) compared to false positve alerts (<200USD)**
 - **Cycles for SARs take place in a time span of max 30 days and for false postivite between 30 and 90 days.**
+- the amount within a cycle vary around 20 to 40%
 
 
 ## transactions
