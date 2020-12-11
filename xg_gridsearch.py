@@ -16,31 +16,6 @@ from hyperopt import STATUS_OK, Trials, fmin, hp, tpe
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 
-ROOT_FOLDER = os.path.dirname(os.getcwd())
-ROOT_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
-sys.path.insert(0, ROOT_FOLDER)
-sys.path.insert(0, ROOT_FOLDER + '/experiments/bitcoin')
-import bitcoin_graph as bg
-from  GAE.graph_case_controller import GraphAutoEncoder
-
-#%% description
-'''
-function to apply a gridsearch on gxboost and applies best performing model
-The following functions are defined
-
-1. calculate embedding and concate with feature labels
-2. apply grid search
-3. select best hyper paramet set and train model
-4. apply model and evaluate
-'''
-#%% parameters
-model_folder = ROOT_FOLDER + '/data/bitcoin/models/'
-data_folder = ROOT_FOLDER + '/data/bitcoin/'
-grid_res = ROOT_FOLDER + '/data/bitcoin/gridsearch_test'
-model_id = 'mdl_dim_32_lr_0.001_do_0_act_tanh'
-file_prefix = ROOT_FOLDER + '/data/bitcoin/xgb_models/' + model_id
-
-#%%
 
 class XgGridSearch:
     space = {
@@ -80,10 +55,15 @@ class XgGridSearch:
         'colsample_bylevel'
         ]
     max_evals = 3
+    cutoff = 0.1
 
-    def __init__(self, feat_file, splits, feat_cols, lbl_name):
+    def __init__(self, feat_file, splits, feat_cols, lbl_name, out_dir, mdl_id):
         self.feat_file = feat_file
         self.splits = splits
+        self.feat_cols = feat_cols
+        self.lbl_name = lbl_name
+        self.out_dir = out_dir
+        self.mdl_id = mdl_id
         self.X_train = None
         self.y_train = None
         self.X_val = None
@@ -133,19 +113,24 @@ class XgGridSearch:
         It returned the loss (=optimisation metric), status and a dict with 
         supporting information.
         """
+        print(params)
         params['n_estimators'] = int(params['n_estimators'])
         clf_xgb = xgb.XGBClassifier()
         clf_xgb = clf_xgb.set_params(**params)
         clf_xgb = clf_xgb.fit(self.X_train, self.y_train)
 
-        pred_train = clf_xgb.predict_proba(X_train)[:, 1]
-        pred_val = clf_xgb.predict_proba(X_val)[:, 1]
+        pred_train = clf_xgb.predict_proba(self.X_train)[:, 1]
+        pred_val = clf_xgb.predict_proba(self.X_val)[:, 1]
 
         
-        aupr_train = aupr(y_train, pred_train)
-        aupr_val = aupr(y_val, pred_val)
-        f1_train = metrics.f1_score(y_train, pred_train)
-        f1_val = metrics.f1_score(y_val, pred_val)
+        aupr_train = XgGridSearch.aupr(self.y_train, pred_train)
+        aupr_val = XgGridSearch.aupr(self.y_val, pred_val)
+    
+        binary_pred_train = [1 if c > XgGridSearch.cutoff else 0 for c in pred_train]
+        binary_pred_val = [1 if c > XgGridSearch.cutoff else 0 for c in pred_val]
+
+        f1_train = metrics.f1_score(self.y_train, binary_pred_train)
+        f1_val = metrics.f1_score(self.y_val, binary_pred_val)
 
         xgb_structure = clf_xgb.get_booster().trees_to_dataframe()
         trees_count = len(np.unique(xgb_structure['Tree']))
@@ -173,7 +158,7 @@ class XgGridSearch:
         return param_dict
 
     # load data and determine train, validation and test split
-    def get_train_test(self):
+    def get_train_test(self, splits):
         feat = pd.read_parquet(self.feat_file)
  
         train = feat.loc[feat['dag'] <= splits[0]]
@@ -181,12 +166,12 @@ class XgGridSearch:
                                 (feat['dag'] <= splits[1])]
 
         print(f'train {train.shape}, val: {val.shape}')
-        self.X_train = train.iloc[:,3:]
-        self.y_train = train.iloc[:, 0].astype(int)
-        self.X_val = val.iloc[:, 3:]
-        self.y_val = val.iloc[:, 0].astype(int)
+        self.X_train = train[self.feat_cols]
+        self.y_train = train[self.lbl_name].astype(int)
+        self.X_val = val[self.feat_cols]
+        self.y_val = val[self.lbl_name].astype(int)
 
-    def execute_grid_search(self, out_dir):
+    def execute_grid_search(self):
         trials = Trials()
 
         argmin = fmin(
@@ -198,7 +183,7 @@ class XgGridSearch:
             rstate = np.random.RandomState(1)
         )
 
-        pickle.dump(trials, open(out_dir + "trails", "wb"))
+        pickle.dump(trials, open(self.out_dir + "trails_" + self.mdl_id, "wb"))
         result_df = XgGridSearch.parse_hyperopt_trials(trials)
         params = XgGridSearch.extract_param_dict(result_df.sort_values(by=["loss"]).reset_index(drop=True).loc[0])    
         return params, result_df
@@ -225,7 +210,7 @@ class XgGridSearch:
 
         # predict test and train set
         pred_train = xgb_model.predict_proba(self.X_train)[:, 1]
-        pred_test = xgb_model.predict_proba(self.X_test)[:, 1]
+        pred_test = xgb_model.predict_proba(self.X_val)[:, 1]
     
         # store results
         pickle.dump(xgb_model, open(file_prefix+"_mdl.pickle", "wb"))
@@ -242,19 +227,44 @@ class XgGridSearch:
         ax.plot(fpr_train, tpr_train, linestyle='--', label='train')
         ax.plot(fpr_test, tpr_test, linestyle='-.', label='test')
 
-    def controller(self, out_dir, run_id):
-if __name__ == "__main__":
-    feature = create_feature_set(model_folder, data_folder, model_id)
-    X_train, y_train, X_val, y_val = get_train_test(feature, [25, 35])
-    params, res_df = execute_grid_search(grid_res)
-    plot_gs_results(res_df)
-    X_train, y_train, X_test, y_test = get_train_test(feature, [35, 100])
-    xgb_model, pred_train, pred_test = train_final_model(params, X_train, y_train, X_test, file_prefix)
-    auc_test = roc_auc_score(y_test, pred_test)
-    auc_train = roc_auc_score(y_train, pred_train)
-    aupr_test = aupr(y_test, pred_test)
-    aupr_train = aupr(y_train, pred_train)
-    print(f'auc train {auc_train}, auc_test {auc_train}, aupr train {aupr_train}, aupr test {aupr_test}')
-    plot_auc(y_train, pred_train, y_test, pred_test)
+    def controller(self, verbose=True, test_modus=False):
+        if test_modus:
+            XgGridSearch.max_evals=4
+        self.get_train_test(self.splits[0:2])
+        params, res_df = self.execute_grid_search()
+        if verbose:
+            XgGridSearch.plot_gs_results(res_df)
+        self.get_train_test(self.splits[1:3])
+        xgb_model, pred_train, pred_test = self.train_final_model(params, self.out_dir + self.mdl_id + "_")
+        
+        auc_test = roc_auc_score(self.y_val, pred_test)
+        auc_train = roc_auc_score(self.y_train, pred_train)
+        aupr_test = XgGridSearch.aupr(self.y_val, pred_test)
+        aupr_train = XgGridSearch.aupr(self.y_train, pred_train)
+        print(f'auc train {auc_train}, auc_test {auc_train}, aupr train {aupr_train}, aupr test {aupr_test}')
+        if verbose:
+            XgGridSearch.plot_auc(self.y_train, pred_train, self.y_val, pred_test)
+        gs_res = {'auc_train': auc_train,
+               'auc_test': auc_train,
+               'aupr_train': aupr_train, 
+               'aupr_test': aupr_test}
+        return gs_res
 
 # %%
+
+
+# feat_file = os.getcwd() + "/data/bank_a/features"
+# splits = [10 ,17 , 26]
+# feat_cols = ['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in',
+#        'first_half_out', 'second_half_out', 'prior_month_out', 'cnt_out', 'embed_0', 'embed_1', 'embed_2',
+#        'embed_3', 'embed_4', 'embed_5', 'embed_6', 'embed_7']
+# lbl_name = 'is_sar'
+# out_dir = os.getcwd() + "/data/bank_a/"
+# mdl_id = "test_mld"
+# #%%
+
+# gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, out_dir, mdl_id)
+# # %%
+# res = gs.controller()
+# print(res)
+# # %%

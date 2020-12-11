@@ -24,7 +24,8 @@ from datetime import datetime
 
 GRAPHCASE_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
 sys.path.insert(0, GRAPHCASE_FOLDER)
-from  GAE.graph_case_controller import GraphAutoEncoder
+from GAE.graph_case_controller import GraphAutoEncoder
+from xg_gridsearch import XgGridSearch
 
 
 class AmlSimPreprocessor:
@@ -272,7 +273,7 @@ class AmlSimPreprocessor:
                 combined_feat = pd.concat([combined_feat, feat])
         
         combined_feat.to_parquet(self.out_dir + "features")
-        return combined_feat
+        return self.out_dir + "features"
 
     def get_labels(self):
         #load alerts trxn and filter on sar
@@ -313,32 +314,50 @@ class AmlSimPreprocessor:
         G = pp.create_graph(node, edge)
         mdl = pp.gs_graphcase(G, dim_size)
         print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
-        
-        feat = pp.create_embedding(mdl)
+        feat_file = pp.create_embedding(mdl)
+        feat_file = os.getcwd() + "/data/bank_a/features"
+        splits = [10 ,17 , 26]
+        feat_cols = ['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in',
+            'first_half_out', 'second_half_out', 'prior_month_out', 'cnt_out', 'embed_0', 'embed_1', 'embed_2',
+            'embed_3', 'embed_4', 'embed_5', 'embed_6', 'embed_7']
+        lbl_name = 'is_sar'
+        mdl_id = "dim_size_" + str(self.dim_size)
+        gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, self.out_dir, mdl_id)
+        res = gs.controller()
+        res['graphcase_model'] = mdl
+        return res
+
+    def dim_size_search(self, dim_sizes):
+        res = []
+        for s in dim_sizes:
+            res.append(self.controller(s))
+        df = pd.DataFrame(res)
+        df.to_parquet(self.out_dir + "dim_size_gs_res")
+
 
         
 
-trxn_file = os.getcwd() + "/data/bank_a/transactions.csv"
-acct_file = os.getcwd() + "/data/bank_a/accounts.csv" 
-alert_file = os.getcwd() + "data/bank_a/alert_transactions.csv"
-out_dir = os.getcwd() + "/data/bank_a/"
+# trxn_file = os.getcwd() + "/data/bank_a/transactions.csv"
+# acct_file = os.getcwd() + "/data/bank_a/accounts.csv" 
+# alert_file = os.getcwd() + "data/bank_a/alert_transactions.csv"
+# out_dir = os.getcwd() + "/data/bank_a/"
 
-pp = AmlSimPreprocessor(trxn_file, acct_file, alert_file, out_dir, 4)
+# pp = AmlSimPreprocessor(trxn_file, acct_file, alert_file, out_dir, 4)
 
 
-# %%
-pp.controller(4)
-#%%
-node, edge = pp.proces_month(2)
-G = pp.create_graph(node, edge)
-mdl = pp.gs_graphcase(G, 4)
-print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
-feat = pp.create_embedding(mdl)
-# edge.head(4)
-# %%
-pp.qa_check(2)
-# %%
-pp.check_node(node, 2)
+# # %%
+# pp.controller(4)
+# #%%
+# node, edge = pp.proces_month(2)
+# G = pp.create_graph(node, edge)
+# mdl = pp.gs_graphcase(G, 4)
+# print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
+# feat = pp.create_embedding(mdl)
+# # edge.head(4)
+# # %%
+# pp.qa_check(2)
+# # %%
+# pp.check_node(node, 2)
 
 
 
