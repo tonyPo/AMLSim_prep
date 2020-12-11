@@ -2,6 +2,12 @@
 Explorative of the SAR pattern.
 We will investigate over which time period a SAR covers.
 Also design a period indicator 
+
+Conclusions
+Alerts are all cycles using transactions of type transfer.
+100 SARs and 100 false posive sars.
+Amount of SAR is distinctive from false positve
+Days between cycles is for SARs max 30 days and for false postivite between 30 and 90 days.
 """
 
 #%%
@@ -27,9 +33,17 @@ r = trxn.groupby('is_sar')['base_amt'].agg([max, min])
 print(r)
 print(f"transaction amount per label")
 # %%
+# check time frame of cycle
 trxn['dag'] = pd.to_datetime(trxn['tran_timestamp'], format='%Y-%m-%d')
 r = trxn.groupby(['alert_id', 'is_sar'])['dag'].agg([max, min])
 r['delta'] = r['max'] - r['min']
-r['delta'].dt.days.plot.hist()
+r['days'] = r['delta'].dt.days
+r.groupby('is_sar')['days'].plot.hist(legend=True, alpha=0.5)
 
+# %%
+# check delta amount in cycle
+res = trxn.groupby(['alert_id', 'is_sar'])['base_amt'].agg([min, max])
+res['delta'] = res['max'] - res['min']
+res['delta_per'] = res['delta'] / res['max']
+res.groupby('is_sar')['delta_per'].plot.hist(legend=True, alpha=0.5)
 # %%
