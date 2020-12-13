@@ -22,8 +22,8 @@ import networkx as nx
 import tensorflow as tf
 from datetime import datetime
 
-GRAPHCASE_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
-sys.path.insert(0, GRAPHCASE_FOLDER)
+# GRAPHCASE_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
+# sys.path.insert(0, GRAPHCASE_FOLDER)
 from GAE.graph_case_controller import GraphAutoEncoder
 from xg_gridsearch import XgGridSearch
 
@@ -33,7 +33,7 @@ class AmlSimPreprocessor:
     dropout_levels = [0, 1, 2]
     act_functions = [tf.nn.tanh, tf.nn.sigmoid]
     dim_size = 32
-    epochs = 10
+    epochs = 5000
 
     def __init__(self, trxn_file, acct_file, alert_file, out_dir, layers):
         self.trxn_file = trxn_file
@@ -57,7 +57,7 @@ class AmlSimPreprocessor:
 
     def get_wire_data(self, dag):
         # select relevant periods
-        trxn = pd.read_csv(trxn_file)
+        trxn = pd.read_csv(self.trxn_file)
         trxn['trxn_dt'] = pd.to_datetime(trxn['tran_timestamp'], format='%Y-%m-%d')
         trxn['dag'] = (trxn['trxn_dt'].dt.year - 2017) * 12 + trxn['trxn_dt'].dt.month
         trxn = trxn.loc[(trxn['dag']==dag) | (trxn['dag']==(dag-1))]
@@ -187,7 +187,7 @@ class AmlSimPreprocessor:
         trxn = trxn.loc[trxn['bene_acct']==node_id]
         print(trxn['base_amt'].agg(['sum', 'count']))
         r = node.loc[node['orig_id']==2][['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in']]
-        m = pp.max_series[['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in']]
+        m = self.max_series[['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in']]
         r = r * m
         print(r['first_half_in'] + r['second_half_in'] + r['prior_month_in'])
         print(r['cnt_in'])
@@ -242,16 +242,16 @@ class AmlSimPreprocessor:
         pickle.dump(gs_res, open(self.out_dir + f'graphcase_gs_results_dim_{dim_size}', "wb"))
         return max(gs_res, key=gs_res.get)
         
-    def create_embedding(self, mdl):
+    def create_embedding(self, mdl, dim_size):
         # gae.load_model(self.out_dir + mdl)
         # embed = gae.calculate_embeddings()
         gae = None
         combined_feat = None
         for dag in range(1,25):
             print(f"processing dag {dag}")
-            node, edge = pp.proces_month(dag)
+            node, edge = self.proces_month(dag)
             cnt = node.shape[0]
-            G = pp.create_graph(node, edge)
+            G = self.create_graph(node, edge)
             if gae is None:
                 dims = [int(mdl.split("_")[1])] * self.layers
                 act = tf.nn.sigmoid if mdl.split("_")[7]=='sigm' else tf.nn.tanh
@@ -272,12 +272,13 @@ class AmlSimPreprocessor:
             else:
                 combined_feat = pd.concat([combined_feat, feat])
         
-        combined_feat.to_parquet(self.out_dir + "features")
-        return self.out_dir + "features"
+        feat_file = self.out_dir + "features_" + str(dim_size)
+        combined_feat.to_parquet(feat_file)
+        return feat_file
 
     def get_labels(self):
         #load alerts trxn and filter on sar
-        alerts = pd.read_csv(trxn_file)
+        alerts = pd.read_csv(self.trxn_file)
         sars = alerts.loc[alerts['is_sar']==True]
 
         # get the highest dag per sar
@@ -310,12 +311,11 @@ class AmlSimPreprocessor:
 
     def controller(self, dim_size):
         # create node and edge df
-        node, edge = pp.proces_month(2)
-        G = pp.create_graph(node, edge)
-        mdl = pp.gs_graphcase(G, dim_size)
+        node, edge = self.proces_month(2)
+        G = self.create_graph(node, edge)
+        mdl = self.gs_graphcase(G, dim_size)
         print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
-        feat_file = pp.create_embedding(mdl)
-        feat_file = os.getcwd() + "/data/bank_a/features"
+        feat_file = self.create_embedding(mdl, dim_size)
         splits = [10 ,17 , 26]
         feat_cols = ['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in',
             'first_half_out', 'second_half_out', 'prior_month_out', 'cnt_out', 'embed_0', 'embed_1', 'embed_2',
@@ -323,7 +323,7 @@ class AmlSimPreprocessor:
         lbl_name = 'is_sar'
         mdl_id = "dim_size_" + str(self.dim_size)
         gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, self.out_dir, mdl_id)
-        res = gs.controller()
+        res = gs.controller(verbose=False)
         res['graphcase_model'] = mdl
         return res
 
@@ -333,6 +333,7 @@ class AmlSimPreprocessor:
             res.append(self.controller(s))
         df = pd.DataFrame(res)
         df.to_parquet(self.out_dir + "dim_size_gs_res")
+        return df
 
 
         

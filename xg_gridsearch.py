@@ -54,7 +54,7 @@ class XgGridSearch:
         'colsample_bynode',
         'colsample_bylevel'
         ]
-    max_evals = 3
+    max_evals = 100
     cutoff = 0.1
 
     def __init__(self, feat_file, splits, feat_cols, lbl_name, out_dir, mdl_id):
@@ -113,7 +113,6 @@ class XgGridSearch:
         It returned the loss (=optimisation metric), status and a dict with 
         supporting information.
         """
-        print(params)
         params['n_estimators'] = int(params['n_estimators'])
         clf_xgb = xgb.XGBClassifier()
         clf_xgb = clf_xgb.set_params(**params)
