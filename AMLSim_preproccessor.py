@@ -274,7 +274,11 @@ class AmlSimPreprocessor:
         
         feat_file = self.out_dir + "features_" + str(dim_size)
         combined_feat.to_parquet(feat_file)
-        return feat_file
+
+        # return column list
+        excl_cols = ['is_sar', 'dag', 'orig_id', 'id']
+        feat_cols = [c for c in combined_feat.columns if c not in excl_cols]
+        return feat_file, feat_cols
 
     def get_labels(self):
         #load alerts trxn and filter on sar
@@ -315,11 +319,8 @@ class AmlSimPreprocessor:
         G = self.create_graph(node, edge)
         mdl = self.gs_graphcase(G, dim_size)
         print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
-        feat_file = self.create_embedding(mdl, dim_size)
+        feat_file, feat_cols = self.create_embedding(mdl, dim_size)
         splits = [10 ,17 , 26]
-        feat_cols = ['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in',
-            'first_half_out', 'second_half_out', 'prior_month_out', 'cnt_out', 'embed_0', 'embed_1', 'embed_2',
-            'embed_3', 'embed_4', 'embed_5', 'embed_6', 'embed_7']
         lbl_name = 'is_sar'
         mdl_id = "dim_size_" + str(self.dim_size)
         gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, self.out_dir, mdl_id)
