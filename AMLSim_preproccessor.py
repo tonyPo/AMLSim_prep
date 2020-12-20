@@ -243,8 +243,6 @@ class AmlSimPreprocessor:
         return max(gs_res, key=gs_res.get)
         
     def create_embedding(self, mdl, dim_size):
-        # gae.load_model(self.out_dir + mdl)
-        # embed = gae.calculate_embeddings()
         gae = None
         combined_feat = None
         for dag in range(1,25):
@@ -336,6 +334,18 @@ class AmlSimPreprocessor:
         df.to_parquet(self.out_dir + "dim_size_gs_res")
         return df
 
+    def controller_without_embed(self, feat_file):
+        # feat_file = self.out_dir + "features_4"
+        feat_cols = ['first_half_in', 'second_half_in', 'prior_month_in', 'cnt_in',
+            'first_half_out', 'second_half_out', 'prior_month_out', 'cnt_out']
+        splits = [10 ,17 , 26]
+        lbl_name = 'is_sar'
+        mdl_id = "dim_size_0"
+        gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, pp.out_dir, mdl_id)
+        res = gs.controller(verbose=False)
+        res['graphcase_model'] = mdl_id
+        return res
+
 
         
 
@@ -360,8 +370,3 @@ class AmlSimPreprocessor:
 # pp.qa_check(2)
 # # %%
 # pp.check_node(node, 2)
-
-
-
-
-# %%
