@@ -341,7 +341,7 @@ class AmlSimPreprocessor:
         splits = [10 ,17 , 26]
         lbl_name = 'is_sar'
         mdl_id = "dim_size_0"
-        gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, pp.out_dir, mdl_id)
+        gs = XgGridSearch(feat_file, splits, feat_cols, lbl_name, self.out_dir, mdl_id)
         res = gs.controller(verbose=False)
         res['graphcase_model'] = mdl_id
         return res
