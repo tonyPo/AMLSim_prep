@@ -209,7 +209,10 @@ class AmlSimPreprocessor:
     
     def gs_graphcase(self, G, dim_size):
         gs_res = {}
-        dims = [dim_size] * self.layers
+        if dim_size > 8:
+            dims = [6] + [dim_size] * (self.layers -1)
+        else:
+            dims = [dim_size] * self.layers
         gae = GraphAutoEncoder(G, learning_rate=0.001, support_size=[5, 5], dims=dims,
                                batch_size=1024, max_total_steps=AmlSimPreprocessor.epochs, verbose=False, act=tf.nn.sigmoid)
 
