@@ -206,13 +206,17 @@ class AmlSimPreprocessor:
             if col not in ['id', 'orig_id', 'is_sar', 'dag']:
                 nx.set_node_attributes(G, pd.Series(nodes[col], index=nodes.id).to_dict(), col)
         return G
-    
-    def gs_graphcase(self, G, dim_size):
-        gs_res = {}
+
+    def get_dims(self, dim_size):
         if dim_size > 8:
             dims = [6] + [dim_size] * (self.layers -1)
         else:
             dims = [dim_size] * self.layers
+        return dims
+    
+    def gs_graphcase(self, G, dim_size):
+        gs_res = {}
+        dims = self.get_dims(dim_size)
         gae = GraphAutoEncoder(G, learning_rate=0.001, support_size=[5, 5], dims=dims,
                                batch_size=1024, max_total_steps=AmlSimPreprocessor.epochs, verbose=False, act=tf.nn.sigmoid)
 
@@ -254,7 +258,7 @@ class AmlSimPreprocessor:
             cnt = node.shape[0]
             G = self.create_graph(node, edge)
             if gae is None:
-                dims = [int(mdl.split("_")[1])] * self.layers
+                dims = self.get_dims(int(mdl.split("_")[1]))
                 act = tf.nn.sigmoid if mdl.split("_")[7]=='sigm' else tf.nn.tanh
                 gae = GraphAutoEncoder(G, learning_rate=0.001, support_size=[5, 5], dims=dims,
                                batch_size=1024, max_total_steps=1000, verbose=False, act=act)
