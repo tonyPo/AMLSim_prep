@@ -22,18 +22,22 @@ import networkx as nx
 import tensorflow as tf
 from datetime import datetime
 
-# GRAPHCASE_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
-# sys.path.insert(0, GRAPHCASE_FOLDER)
+GRAPHCASE_FOLDER = '/Users/tonpoppe/workspace/GraphCase'
+sys.path.insert(0, GRAPHCASE_FOLDER)
 from GAE.graph_case_controller import GraphAutoEncoder
 from xg_gridsearch import XgGridSearch
-
+#%%
 
 class AmlSimPreprocessor:
-    learning_rates = [0.001, 0.005, 0.0005]
-    dropout_levels = [0, 1, 2]
-    act_functions = [tf.nn.tanh, tf.nn.sigmoid]
+    learning_rates = [0.001] # [0.001, 0.005, 0.0005]
+    dropout_rates = [None]  # [None, 0.1, 0.2]
+    act_functions = [tf.nn.relu]  #[tf.nn.tanh, tf.nn.sigmoid]
     dim_size = 32
-    epochs = 5000
+    epochs = 2 #000
+    batch_size = 1024
+    support_size = [5, 5]
+    useBN = False  # batch normalisation
+    hub0_feature_with_neighb_dim = None  #  field to indicate whether the node labels of the target node need to be included in the last layer.
 
     def __init__(self, trxn_file, acct_file, alert_file, out_dir, layers):
         self.trxn_file = trxn_file
@@ -217,29 +221,28 @@ class AmlSimPreprocessor:
     def gs_graphcase(self, G, dim_size):
         gs_res = {}
         dims = self.get_dims(dim_size)
-        gae = GraphAutoEncoder(G, learning_rate=0.001, support_size=[5, 5], dims=dims,
-                               batch_size=1024, max_total_steps=AmlSimPreprocessor.epochs, verbose=False, act=tf.nn.sigmoid)
 
         for lr in AmlSimPreprocessor.learning_rates:
-            for do in AmlSimPreprocessor.dropout_levels:
+            for do in AmlSimPreprocessor.dropout_rates:
                 for act in AmlSimPreprocessor.act_functions:
-                    train_res = {}
-                    for i in range(len(gae.dims)):
-                        if i in range(1, 1 + do):
-                            train_res["l"+str(i+1)] = gae.train_layer(i+1, dropout=0.1, learning_rate=lr, act=act)
-                        else:
-                            train_res["l"+str(i+1)] = gae.train_layer(i+1, dropout=None, learning_rate=lr, act=act)
+                    gae =  GraphAutoEncoder(
+                        G, support_size=AmlSimPreprocessor.support_size, dims=dims, 
+                        batch_size=AmlSimPreprocessor.batch_size, 
+                        hub0_feature_with_neighb_dim=AmlSimPreprocessor.hub0_feature_with_neighb_dim,
+                        useBN=AmlSimPreprocessor.useBN, 
+                        verbose=True, seed=1, learning_rate=lr, act=act, dropout=do
+                    )
+                    train_res = gae.fit(epochs=AmlSimPreprocessor.epochs, layer_wise=False)
 
-                    train_res['all'] = gae.train_layer(len(gae.dims), all_layers=True, learning_rate=lr, act=act)
-                    
                     # save results
                     act_str =  'tanh' if act==tf.nn.tanh else 'sigm'
                     run_id = f'dim_{dim_size}_lr_{lr}_do_{do}_act_{act_str}_layers_{self.layers}'
-                    pickle.dump(train_res, open(self.out_dir + 'res_' + run_id, "wb"))
-                    gae.save_model(self.out_dir + 'mdl_' + run_id)
+                    pickle.dump(train_res[None].history, open(self.out_dir + 'res_' + run_id, "wb"))
+                    gae.save_weights(self.out_dir + 'mdl_' + run_id)
+
 
                     # print and store result
-                    val_los = sum(train_res['all']['val_l'][-4:]) / 4
+                    val_los = sum(train_res[None].history['val_loss'][-2:]) / 2
                     gs_res[run_id] = val_los
                     print(f'dims:{dim_size}, lr:{lr}, dropout lvl:{do}, act func:{act_str} resultsing val loss {val_los}')
 
@@ -249,10 +252,10 @@ class AmlSimPreprocessor:
         pickle.dump(gs_res, open(self.out_dir + f'graphcase_gs_results_dim_{dim_size}', "wb"))
         return max(gs_res, key=gs_res.get)
         
-    def create_embedding(self, mdl, dim_size):
+    def create_embedding(self, mdl, date_range=range(1,25)):
         gae = None
         combined_feat = None
-        for dag in range(1,25):
+        for dag in date_range:
             print(f"processing dag {dag}")
             node, edge = self.proces_month(dag)
             cnt = node.shape[0]
@@ -260,13 +263,20 @@ class AmlSimPreprocessor:
             if gae is None:
                 dims = self.get_dims(int(mdl.split("_")[1]))
                 act = tf.nn.sigmoid if mdl.split("_")[7]=='sigm' else tf.nn.tanh
-                gae = GraphAutoEncoder(G, learning_rate=0.001, support_size=[5, 5], dims=dims,
-                               batch_size=1024, max_total_steps=1000, verbose=False, act=act)
-                gae.load_model(self.out_dir + 'mdl_' + mdl, G)
+                do = mdl.split("_")[5]
+                gae = GraphAutoEncoder(
+                        G, support_size=AmlSimPreprocessor.support_size, 
+                        dims=dims, 
+                        batch_size=AmlSimPreprocessor.batch_size, 
+                        hub0_feature_with_neighb_dim=AmlSimPreprocessor.hub0_feature_with_neighb_dim,
+                        useBN=AmlSimPreprocessor.useBN, verbose=False, seed=1, 
+                        learning_rate=0.01, act=act, dropout=do
+                )
+                gae.load_weights(self.out_dir + 'mdl_' + mdl)
             embed = gae.calculate_embeddings(G)
 
             #combine with nodes
-            if self.layers % 2 == 0:
+            if AmlSimPreprocessor.hub0_feature_with_neighb_dim is None:
                 pd_embed = pd.DataFrame(data=embed[:cnt,1:], index=embed[:cnt,0], columns=[f'embed_{i}' for i in range(dims[-1] * 2)])
             else:
                 pd_embed = pd.DataFrame(data=embed[:cnt,1:], index=embed[:cnt,0], columns=[f'embed_{i}' for i in range(dims[-1])])
@@ -277,7 +287,7 @@ class AmlSimPreprocessor:
             else:
                 combined_feat = pd.concat([combined_feat, feat])
         
-        feat_file = self.out_dir + "features_" + str(dim_size)
+        feat_file = self.out_dir + "features_" + str(dims[-1])
         combined_feat.to_parquet(feat_file)
 
         # return column list
@@ -333,6 +343,13 @@ class AmlSimPreprocessor:
         res['graphcase_model'] = mdl
         return res
 
+    def train_model(self, dim_size):
+        node, edge = self.proces_month(2)
+        G = self.create_graph(node, edge)
+        mdl = self.gs_graphcase(G, dim_size)
+        print(mdl) 
+
+
     def dim_size_search(self, dim_sizes):
         res = []
         for s in dim_sizes:
@@ -354,26 +371,46 @@ class AmlSimPreprocessor:
         return res
 
 
-        
+#%% Define files locations and instantiate object.
 
-# trxn_file = os.getcwd() + "/data/bank_a/transactions.csv"
-# acct_file = os.getcwd() + "/data/bank_a/accounts.csv" 
-# alert_file = os.getcwd() + "data/bank_a/alert_transactions.csv"
-# out_dir = os.getcwd() + "/data/bank_a/"
+trxn_file = os.getcwd() + "/data/bank_a/transactions.csv"
+acct_file = os.getcwd() + "/data/bank_a/accounts.csv" 
+alert_file = os.getcwd() + "data/bank_a/alert_transactions.csv"
+out_dir = os.getcwd() + "/data/bank_a/"
 
-# pp = AmlSimPreprocessor(trxn_file, acct_file, alert_file, out_dir, 4)
+pp = AmlSimPreprocessor(trxn_file, acct_file, alert_file, out_dir, 4)
 
 
-# # %%
+#%%
 # pp.controller(4)
-# #%%
-# node, edge = pp.proces_month(2)
-# G = pp.create_graph(node, edge)
-# mdl = pp.gs_graphcase(G, 4)
-# print(mdl)  # dim_4_lr_0.0005_do_2_act_sigm_layers_5
-# feat = pp.create_embedding(mdl)
-# # edge.head(4)
-# # %%
+#%%  Create node and edge data frames
+node, edge = pp.proces_month(2)
+print(f"there are {node.shape[0]} nodes with {node.shape[1]} labels and {edge.shape[0]} edges with {edge.shape[1]} labels.")
+node.head(2)
+edge.head(2)
+
+
+#%% create networkx graph
+G = pp.create_graph(node, edge)
+print(f"G has {len(G.nodes())} nodes and {len(G.edges())} edge")
+print("Note that the graph has a few less edges then the dataframe, becasue network xuses bigraph and which can't handle multiples edges to the same node.")
+
+
+#%% create model, select best hyper params and train the model.
+"""
+The hyper param grid that is used in the grid search is defined at the start of the preprocessor class on row 32 to 39
+"""
+mdl = pp.gs_graphcase(G, 4)
+print(mdl)  
+
+#%% create embeddings for specified months.
+
+feat_file, feat_cols = pp.create_embedding(mdl, date_range=[1])  # this is only creating feature for the second month.
+
+
+
+#%% additional checks (not)
 # pp.qa_check(2)
 # # %%
 # pp.check_node(node, 2)
+# %%
